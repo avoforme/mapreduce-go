@@ -1,7 +1,9 @@
 package mapreduce
 
 import (
+	"encoding/json"
 	"hash/fnv"
+	"os"
 )
 
 // doMap does the job of a map worker: it reads one of the input files
@@ -22,11 +24,26 @@ func doMap(
 	//   then convert to string: contents := string(data)
 	//   Pass inFile and contents to mapF to get a []KeyValue back.
 	//
+	data, err := os.ReadFile(inFile)
+	checkError(err)
+	contents:= string(data)
+	resultMap := mapF(inFile, contents)
+
 	// Step 2: Partition output into nReduce intermediate files.
 	//   For each KeyValue returned by mapF, compute which reduce task it belongs to:
 	//     r := int(ihash(kv.Key)) % nReduce
 	//   The output filename for reduce task r is: reduceName(jobName, mapTaskNumber, r)
 	//
+
+	var tempFiles []*os.File
+	var encoders []*json.Encoder
+	for  i := 0; i < nReduce; i++  {
+		f, err := os.CreateTemp(".", "prefix")
+		checkError(err)
+		tempFiles = append(tempFiles, f)
+		encoders = append(encoders, json.NewEncoder(f))
+	}
+
 	// Step 3: Write each partition using JSON encoding.
 	//   Use json.NewEncoder(file) and enc.Encode(&kv) for each KeyValue.
 	//   Example:
@@ -36,11 +53,23 @@ func doMap(
 	//       checkError(err)
 	//     }
 	//
+
+	for _, kv := range resultMap {
+		r := int(ihash(kv.Key)) % nReduce
+		err := encoders[r].Encode(&kv)
+		checkError(err)
+
+	}
 	// Step 4: Write atomically using a temp file + os.Rename.
 	//   See the Note in the project spec (Part A) for the required pattern:
 	//   create each output file with os.CreateTemp, write to it, close it,
 	//   then call os.Rename(tmp.Name(), reduceName(...)) to atomically publish it.
 	//   Use checkError to handle errors.
+	for index, file := range tempFiles {
+		file.Close()
+		err := os.Rename(file.Name(), reduceName(jobName, mapTaskNumber, index))
+		checkError(err)
+	}
 
 }
 
