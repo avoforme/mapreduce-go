@@ -1,5 +1,12 @@
 package mapreduce
 
+import (
+	"fmt"
+	"net/rpc"
+	"sync"
+
+)
+
 // schedule starts and waits for all tasks in the given phase (Map or Reduce).
 func (mr *Master) schedule(phase jobPhase) {
 	var ntasks int
@@ -23,6 +30,41 @@ func (mr *Master) schedule(phase jobPhase) {
 	// finishes (or fails) so other tasks can reuse it. Note that
 	// mr.registerChannel is unbuffered, so return the address asynchronously
 	// to avoid a deadlock on the last task in the phase.
+	
+	var workerGroup sync.WaitGroup
+
+	for taskNumber := range ntasks {
+		fmt.Printf("task number %d\n", taskNumber)
+		file := ""
+		if phase == mapPhase {
+			file = mr.files[taskNumber]
+		}
+		taskArgs := DoTaskArgs {
+			JobName: mr.jobName,    
+			File: file,
+			Phase: phase,   
+			TaskNumber: taskNumber,
+			NumOtherPhase: nios,
+		}
+
+		workerGroup.Add(1)
+		go func(taskArgs DoTaskArgs) {
+			defer workerGroup.Done()
+			workerAddress := <- mr.registerChannel
+			workerConnection, err := rpc.Dial("unix", workerAddress)
+			if err != nil {
+			}
+
+			var reply struct{}
+			err = workerConnection.Call("Worker.DoTask",taskArgs, &reply)
+			go func() {
+				// registerChannel is unbuffered
+				mr.registerChannel <- workerAddress
+			}()
+		}(taskArgs)
+	}
+
+	workerGroup.Wait()
 
 	// TODO (Part F): when all but one task have completed, launch backup tasks
 	// for any that are still running, to avoid being held up by a slow worker.
