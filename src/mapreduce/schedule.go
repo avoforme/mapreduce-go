@@ -34,7 +34,6 @@ func (mr *Master) schedule(phase jobPhase) {
 	var workerGroup sync.WaitGroup
 
 	for taskNumber := range ntasks {
-		fmt.Printf("task number %d\n", taskNumber)
 		file := ""
 		if phase == mapPhase {
 			file = mr.files[taskNumber]
@@ -50,17 +49,37 @@ func (mr *Master) schedule(phase jobPhase) {
 		workerGroup.Add(1)
 		go func(taskArgs DoTaskArgs) {
 			defer workerGroup.Done()
-			workerAddress := <- mr.registerChannel
-			workerConnection, err := rpc.Dial("unix", workerAddress)
-			if err != nil {
-			}
+			for {
+				workerAddress := <- mr.registerChannel
+				workerConnection, err := rpc.Dial("unix", workerAddress)
+				if  err == nil {
+				} else {
+					go func() {
+						// registerChannel is unbuffered
+						mr.registerChannel <- workerAddress
+					}()
+					continue
+				}
 
-			var reply struct{}
-			err = workerConnection.Call("Worker.DoTask",taskArgs, &reply)
-			go func() {
-				// registerChannel is unbuffered
-				mr.registerChannel <- workerAddress
-			}()
+				var reply struct{}
+				err = workerConnection.Call("Worker.DoTask",taskArgs, &reply)
+
+				if  err == nil {
+					go func() {
+						// registerChannel is unbuffered
+						mr.registerChannel <- workerAddress
+					}()
+					break
+				} else {
+					go func() {
+						// registerChannel is unbuffered
+						mr.registerChannel <- workerAddress
+					}()
+					continue
+				}
+			}
+			
+			
 		}(taskArgs)
 	}
 
