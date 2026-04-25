@@ -82,28 +82,31 @@ func (mr *Master) schedule(phase jobPhase) {
 			}
 	}
 
-	straggleHandler := func (taskAssigned int) {
-		for taskNumber := range taskAssigned {
-			if atomic.LoadInt32(&done[taskNumber]) == 0 {
-					go func(taskNumber int) {
-						runTask(taskNumber)
-					}(taskNumber)
-				}
-		}
-	}
-
-	for taskNumber := range ntasks {
-		
+	for i := 0; i < ntasks; i++ {
 		workerGroup.Add(1)
-		go func(taskNumber int) {
-			runTask(taskNumber)
-		}(taskNumber)
-
-		go func(taskNumber int) {
-			straggleHandler(taskNumber)
-		}(taskNumber)
-
+		go runTask(i)
 	}
+
+	go func() {
+		for {
+			completed := 0
+			for i := 0; i < ntasks; i++ {
+				if atomic.LoadInt32(&done[i]) == 1 {
+					completed++
+				}
+			}
+
+			if completed >= ntasks-1 {
+				for i := 0; i < ntasks; i++ {
+					if atomic.LoadInt32(&done[i]) == 0 {
+						go runTask(i) // backup
+					}
+				}
+				return
+			}
+		}
+	}()
+
 
 	
 	// TODO (Part F): when all but one task have completed, launch backup tasks
