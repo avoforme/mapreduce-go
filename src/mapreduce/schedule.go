@@ -2,7 +2,7 @@ package mapreduce
 
 import (
 	// "fmt"
-	"net/rpc"
+	// "net/rpc"
 	"sync"
 	"sync/atomic"
 )
@@ -49,20 +49,10 @@ func (mr *Master) schedule(phase jobPhase) {
 
 		for {
 				workerAddress := <- mr.registerChannel
-				workerConnection, err := rpc.Dial("unix", workerAddress)
-				if  err == nil {
-				} else {
-					go func() {
-						// registerChannel is unbuffered
-						mr.registerChannel <- workerAddress
-					}()
-					continue
-				}
 
 				var reply struct{}
-				err = workerConnection.Call("Worker.DoTask",taskArgs, &reply)
-				
-				if  err == nil {
+				ok := call(workerAddress, "Worker.DoTask",taskArgs, &reply)
+				if ok {
 					if atomic.CompareAndSwapInt32(&done[taskNumber], 0, 1) {
 						workerGroup.Done()
 					}
