@@ -1,7 +1,7 @@
 package mapreduce
 
 import (
-	"fmt"
+	// "fmt"
 	"net/rpc"
 	"sync"
 
@@ -33,7 +33,7 @@ func (mr *Master) schedule(phase jobPhase) {
 	
 	var workerGroup sync.WaitGroup
 
-	for taskNumber := range ntasks {
+	runTask := func (taskNumber int) {
 		file := ""
 		if phase == mapPhase {
 			file = mr.files[taskNumber]
@@ -46,10 +46,7 @@ func (mr *Master) schedule(phase jobPhase) {
 			NumOtherPhase: nios,
 		}
 
-		workerGroup.Add(1)
-		go func(taskArgs DoTaskArgs) {
-			defer workerGroup.Done()
-			for {
+		for {
 				workerAddress := <- mr.registerChannel
 				workerConnection, err := rpc.Dial("unix", workerAddress)
 				if  err == nil {
@@ -63,7 +60,7 @@ func (mr *Master) schedule(phase jobPhase) {
 
 				var reply struct{}
 				err = workerConnection.Call("Worker.DoTask",taskArgs, &reply)
-
+				
 				if  err == nil {
 					go func() {
 						// registerChannel is unbuffered
@@ -78,9 +75,14 @@ func (mr *Master) schedule(phase jobPhase) {
 					continue
 				}
 			}
-			
-			
-		}(taskArgs)
+	}
+	for taskNumber := range ntasks {
+		
+		workerGroup.Add(1)
+		go func() {
+			defer workerGroup.Done()
+			runTask(taskNumber)
+		}()
 	}
 
 	workerGroup.Wait()
@@ -92,5 +94,6 @@ func (mr *Master) schedule(phase jobPhase) {
 	// A shared count won't be enough. Also consider what happens if both the
 	// original and a backup copy of a task finish successfully.
 
+	
 	debug("Schedule: %v phase done\n", phase)
 }
